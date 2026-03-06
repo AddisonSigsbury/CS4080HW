@@ -44,7 +44,9 @@ public class GenerateAst {
 */
 //> Statements and State var-expr
       "Unary    : Token operator, Expr right",
-      "Variable : Token name"
+      "Variable : Token name",
+      "Function : List<Token> parameters, List<Stmt> body",
+      "Function : Token name, Expr.Function function"
 //< Statements and State var-expr
     ));
 //> Statements and State stmt-ast
