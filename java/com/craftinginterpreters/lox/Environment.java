@@ -9,6 +9,7 @@ class Environment {
   final Environment enclosing;
 //< enclosing-field
   private final Map<String, Object> values = new HashMap<>();
+  private final List<Object> slots = new ArrayList<>();
 //> environment-constructors
   Environment() {
     enclosing = null;
@@ -55,6 +56,11 @@ class Environment {
 //> environment-define
   void define(String name, Object value) {
     values.put(name, value);
+    slots.add(value);
+  }
+
+  Object getAtIndex(int distance, int index) {
+    return ancestor(distance).slots.get(index);
   }
 //< environment-define
 //> Resolving and Binding ancestor

@@ -10,6 +10,7 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
   private final Interpreter interpreter;
 //> scopes-field
   private final Stack<Map<String, Variable>> scopes = new Stack<>();
+  private final Stack<Integer> scopeNextIndex = new Stack<>();
 //< scopes-field
 //> function-type-field
   private FunctionType currentFunction = FunctionType.NONE;
@@ -366,6 +367,7 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
 //> begin-scope
   private void beginScope() {
     scopes.push(new HashMap<String, Variable>());
+    scopeNextIndex.push(0);
   }
 //< begin-scope
 //> end-scope
@@ -384,12 +386,9 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
     if (scopes.isEmpty()) return;
 
     Map<String, Variable> scope = scopes.peek();
-    if (scope.containsKey(name.lexeme)) {
-      Lox.error(name,
-              "Already variable with this name in this scope.");
-    }
+    scopeNextIndex.set(scopeNextIndex.size() - 1, index + 1);
 
-    scope.put(name.lexeme, new Variable(name, VariableState.DECLARED));
+    scope.put(name.lexeme, new Variable(name, VariableState.DECLARED, index));
   }
 //< declare
 //> define
@@ -401,20 +400,12 @@ class Resolver implements Expr.Visitor<Void>, Stmt.Visitor<Void> {
 //> resolve-local
   private void resolveLocal(Expr expr, Token name, boolean isRead) {
     for (int i = scopes.size() - 1; i >= 0; i--) {
-      if (scopes.get(i).containsKey(name.lexeme)) {
-        interpreter.resolve(expr, scopes.size() - 1 - i);
-
-        // Mark it used.
-        if (isRead) {
-          scopes.get(i).get(name.lexeme).state = VariableState.READ;
+        if (scopes.get(i).containsKey(name.Lexeme)) {
+            Variable variable = scopes - get(i) - get(name.Lexeme);
+            interpreter.resolve(expr, scopes.size() - 1 - i, variable.index);
+            return;
         }
-        return;
-      }
     }
-
-    // Not found. Assume it is global.
-  }
-//< resolve-local
 }
 private static class Variable {
   final Token name;

@@ -29,7 +29,7 @@ class Interpreter implements Expr.Visitor<Object>,
   private Environment environment = globals;
 //< Functions global-environment
 //> Resolving and Binding locals-field
-  private final Map<Expr, Integer> locals = new HashMap<>();
+  private final Map<Expr, int[]> locals = new HashMap<>();
   private static Object uninitialized = new Object();
 //< Resolving and Binding locals-field
 //> Statements and State environment-field
@@ -486,9 +486,9 @@ class Interpreter implements Expr.Visitor<Object>,
   }
 //> Resolving and Binding look-up-variable
   private Object lookUpVariable(Token name, Expr expr) {
-    Integer distance = locals.get(expr);
-    if (distance != null) {
-      return environment.getAt(distance, name.lexeme);
+    int[] location = locals.get(expr);
+    if (location != null) {
+      return environment.getAtIndex(location[0], location[1]);
     } else {
       return globals.get(name);
     }
