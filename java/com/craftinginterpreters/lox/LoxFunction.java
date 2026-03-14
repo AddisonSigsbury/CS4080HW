@@ -36,16 +36,11 @@ class LoxFunction implements LoxCallable {
     return "<fn " + name + ">";
   }
 //> Classes bind-instance
-  LoxFunction bind(LoxInstance instance) {
+  LoxFunction bind(LoxInstance instance, LoxFunction inner) {
     Environment environment = new Environment(closure);
     environment.define("this", instance);
-/* Classes bind-instance < Classes lox-function-bind-with-initializer
-    return new LoxFunction(declaration, environment);
-*/
-//> lox-function-bind-with-initializer
-    return new LoxFunction(declaration, environment,
-                           isInitializer);
-//< lox-function-bind-with-initializer
+    environment.define("inner", inner);
+    return new LoxFunction(declaration, environment, isInitializer);
   }
 //< Classes bind-instance
 //> function-to-string
