@@ -49,6 +49,9 @@ class LoxFunction implements LoxCallable {
   }
 //< Classes bind-instance
 //> function-to-string
+  public boolean isGetter() {
+    return declaration.params == null;
+  }
   @Override
   public String toString() {
     return "<fn " + declaration.name.lexeme + ">";
@@ -62,17 +65,13 @@ class LoxFunction implements LoxCallable {
 //< function-arity
 //> function-call
   @Override
-  public Object call(Interpreter interpreter,
-                     List<Object> arguments) {
-/* Functions function-call < Functions call-closure
-    Environment environment = new Environment(interpreter.globals);
-*/
-//> call-closure
+  public Object call(Interpreter interpreter, List<Object> arguments) {
     Environment environment = new Environment(closure);
-//< call-closure
-    for (int i = 0; i < declaration.params.size(); i++) {
-      environment.define(declaration.params.get(i).lexeme,
-          arguments.get(i));
+    if (declaration.params != null) {
+      for (int i = 0; i < declaration.params.size(); i++) {
+        environment.define(declaration.params.get(i).lexeme,
+                arguments.get(i));
+      }
     }
 
 /* Functions function-call < Functions catch-return

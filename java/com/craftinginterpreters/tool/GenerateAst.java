@@ -59,8 +59,7 @@ public class GenerateAst {
       "Class      : Token name, List<Stmt.Function> methods",
 */
 //> Inheritance superclass-ast
-      "Class      : Token name, Expr.Variable superclass," +
-                  " List<Stmt.Function> methods",
+      "Class      : Token name, List<Stmt.Function> methods, List<Stmt.Function> classMethods",
       "Break      : ",  // <--
 //< Inheritance superclass-ast
       "Expression : Expr expression",
@@ -89,7 +88,7 @@ public class GenerateAst {
       "While      : Expr condition, Stmt body"
 //< Control Flow while-ast
     ));
-//< Statements and State stmt-ast
+//< Statements and State     -ast
 //< call-define-ast
   }
 //> define-ast

@@ -8,28 +8,25 @@ import java.util.Map;
 class LoxClass {
 */
 //> lox-class-callable
-class LoxClass implements LoxCallable {
-//< lox-class-callable
+class LoxClass extends LoxInstance implements LoxCallable {
+  //< lox-class-callable
   final String name;
-//> Inheritance lox-class-superclass-field
-  final LoxClass superclass;
-//< Inheritance lox-class-superclass-field
-/* Classes lox-class < Classes lox-class-methods
+  /* Classes lox-class < Classes lox-class-methods
 
-  LoxClass(String name) {
-    this.name = name;
-  }
-*/
-//> lox-class-methods
+    LoxClass(String name) {
+      this.name = name;
+    }
+  */
+  //> lox-class-methods
   private final Map<String, LoxFunction> methods;
 
 /* Classes lox-class-methods < Inheritance lox-class-constructor
   LoxClass(String name, Map<String, LoxFunction> methods) {
 */
 //> Inheritance lox-class-constructor
-  LoxClass(String name, LoxClass superclass,
+  LoxClass(String name, LoxClass metaclass,
            Map<String, LoxFunction> methods) {
-    this.superclass = superclass;
+    super(metaclass);
 //< Inheritance lox-class-constructor
     this.name = name;
     this.methods = methods;
