@@ -141,47 +141,36 @@ static uint32_t hashString(const char* key, int length) {
   }
   return hash;
 }
-//< Hash Tables hash-string
-//> take-string
-ObjString* takeString(char* chars, int length) {
-/* Strings take-string < Hash Tables take-string-hash
-  return allocateString(chars, length);
-*/
-//> Hash Tables take-string-hash
-  uint32_t hash = hashString(chars, length);
-//> take-string-intern
-  ObjString* interned = tableFindString(&vm.strings, chars, length,
-                                        hash);
-  if (interned != NULL) {
-    FREE_ARRAY(char, chars, length + 1);
-    return interned;
-  }
 
-//< take-string-intern
-  return allocateString(chars, length, hash);
-//< Hash Tables take-string-hash
+ObjString* makeString(int length) {
+  ObjString* string = (ObjString*)allocateObject(
+          sizeof(ObjString) + length + 1, OBJ_STRING);
+  string->length = length;
+  return string;
 }
-//< take-string
+
 ObjString* copyString(const char* chars, int length) {
-//> Hash Tables copy-string-hash
-  uint32_t hash = hashString(chars, length);
-//> copy-string-intern
-  ObjString* interned = tableFindString(&vm.strings, chars, length,
-                                        hash);
-  if (interned != NULL) return interned;
+  ObjString* string = makeString(length);
 
-//< copy-string-intern
-//< Hash Tables copy-string-hash
-  char* heapChars = ALLOCATE(char, length + 1);
-  memcpy(heapChars, chars, length);
-  heapChars[length] = '\0';
-/* Strings object-c < Hash Tables copy-string-allocate
-  return allocateString(heapChars, length);
-*/
-//> Hash Tables copy-string-allocate
-  return allocateString(heapChars, length, hash);
-//< Hash Tables copy-string-allocate
+  memcpy(string->chars, chars, length);
+  string->chars[length] = '\0';
+
+  return string;
 }
+
+static void concatenate() {
+  ObjString* b = AS_STRING(pop());
+  ObjString* a = AS_STRING(pop());
+
+  int length = a->length + b->length;
+  ObjString* result = makeString(length);
+  memcpy(result->chars, a->chars, a->length);
+  memcpy(result->chars + a->length, b->chars, b->length);
+  result->chars[length] = '\0';
+
+  push(OBJ_VAL(result));
+}
+
 //> Closures new-upvalue
 ObjUpvalue* newUpvalue(Value* slot) {
   ObjUpvalue* upvalue = ALLOCATE_OBJ(ObjUpvalue, OBJ_UPVALUE);
