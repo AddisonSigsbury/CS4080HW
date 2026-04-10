@@ -123,6 +123,7 @@ typedef struct {
 struct ObjString {
   Obj obj;
   int length;
+  bool ownsChars;
   char chars[];
 //> Hash Tables obj-string-hash
   uint32_t hash;

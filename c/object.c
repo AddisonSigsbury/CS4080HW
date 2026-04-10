@@ -142,20 +142,18 @@ static uint32_t hashString(const char* key, int length) {
   return hash;
 }
 
-ObjString* makeString(int length) {
-  ObjString* string = (ObjString*)allocateObject(
-          sizeof(ObjString) + length + 1, OBJ_STRING);
+ObjString* makeString(bool ownsChars, char* chars, int length) {
+  ObjString* string = ALLOCATE_OBJ(ObjString, OBJ_STRING);
+  string->ownsChars = ownsChars;
   string->length = length;
+  string->chars = chars;
+
   return string;
 }
 
-ObjString* copyString(const char* chars, int length) {
-  ObjString* string = makeString(length);
-
-  memcpy(string->chars, chars, length);
-  string->chars[length] = '\0';
-
-  return string;
+static void string() {
+  emitConstant(OBJ_VAL(makeString(false,
+          (char*)parser.previous.start + 1, parser.previous.length - 2)));
 }
 
 static void concatenate() {
@@ -163,11 +161,12 @@ static void concatenate() {
   ObjString* a = AS_STRING(pop());
 
   int length = a->length + b->length;
-  ObjString* result = makeString(length);
-  memcpy(result->chars, a->chars, a->length);
-  memcpy(result->chars + a->length, b->chars, b->length);
-  result->chars[length] = '\0';
+  char* chars = ALLOCATE(char, length + 1);
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
 
+  ObjString* result = makeString(true, chars, length); // <--
   push(OBJ_VAL(result));
 }
 
@@ -185,14 +184,13 @@ ObjUpvalue* newUpvalue(Value* slot) {
 }
 //< Closures new-upvalue
 //> Calls and Functions print-function-helper
-static void printFunction(ObjFunction* function) {
-//> print-script
-  if (function->name == NULL) {
-    printf("<script>");
-    return;
+void printObject(Value value) {
+  switch (OBJ_TYPE(value)) {
+    case OBJ_STRING:
+      // Changed:
+      printf("%.*s", AS_STRING(value)->length, AS_CSTRING(value));
+          break;
   }
-//< print-script
-  printf("<fn %s>", function->name->chars);
 }
 //< Calls and Functions print-function-helper
 //> print-object
