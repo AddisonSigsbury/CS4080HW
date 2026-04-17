@@ -7,7 +7,7 @@
 //> entry
 
 typedef struct {
-  ObjString* key;
+  Value key;
   Value value;
 } Entry;
 //< entry

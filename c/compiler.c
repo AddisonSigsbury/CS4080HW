@@ -413,8 +413,17 @@ static void parsePrecedence(Precedence precedence);
 //< Compiling Expressions forward-declarations
 //> Global Variables identifier-constant
 static uint8_t identifierConstant(Token* name) {
-  return makeConstant(OBJ_VAL(copyString(name->start,
-                                         name->length)));
+  Value index;
+  ObjString* identifier = copyString(name->start, name->length);
+  if (tableGet(&vm.globalNames, identifier, &index)) {
+    return (uint8_t)AS_NUMBER(index);
+  }
+
+  uint8_t newIndex = (uint8_t)vm.globalValues.count;
+  writeValueArray(&vm.globalValues, UNDEFINED_VAL);
+
+  tableSet(&vm.globalNames, identifier, NUMBER_VAL((double)newIndex));
+  return newIndex;
 }
 //< Global Variables identifier-constant
 //> Local Variables identifiers-equal
@@ -1462,66 +1471,24 @@ void compile(const char* source) {
 bool compile(const char* source, Chunk* chunk) {
 */
 //> Calls and Functions compile-signature
-ObjFunction* compile(const char* source) {
-//< Calls and Functions compile-signature
+
+bool compile(const char* source, Chunk* chunk) {
   initScanner(source);
-/* Scanning on Demand dump-tokens < Compiling Expressions compile-chunk
-  int line = -1;
-  for (;;) {
-    Token token = scanToken();
-    if (token.line != line) {
-      printf("%4d ", token.line);
-      line = token.line;
-    } else {
-      printf("   | ");
-    }
-    printf("%2d '%.*s'\n", token.type, token.length, token.start); // [format]
 
-    if (token.type == TOKEN_EOF) break;
-  }
-*/
-//> Local Variables compiler
-  Compiler compiler;
-//< Local Variables compiler
-/* Local Variables compiler < Calls and Functions call-init-compiler
-  initCompiler(&compiler);
-*/
-//> Calls and Functions call-init-compiler
-  initCompiler(&compiler, TYPE_SCRIPT);
-//< Calls and Functions call-init-compiler
-/* Compiling Expressions init-compile-chunk < Calls and Functions call-init-compiler
   compilingChunk = chunk;
-*/
-//> Compiling Expressions compile-chunk
-//> init-parser-error
-
   parser.hadError = false;
   parser.panicMode = false;
+  initTable(&stringConstants); // <--
 
-//< init-parser-error
   advance();
-//< Compiling Expressions compile-chunk
-/* Compiling Expressions compile-chunk < Global Variables compile
-  expression();
-  consume(TOKEN_EOF, "Expect end of expression.");
-*/
-//> Global Variables compile
 
   while (!match(TOKEN_EOF)) {
     declaration();
   }
 
-//< Global Variables compile
-/* Compiling Expressions finish-compile < Calls and Functions call-end-compiler
   endCompiler();
-*/
-/* Compiling Expressions return-had-error < Calls and Functions call-end-compiler
+  freeTable(&stringConstants); // <--
   return !parser.hadError;
-*/
-//> Calls and Functions call-end-compiler
-  ObjFunction* function = endCompiler();
-  return parser.hadError ? NULL : function;
-//< Calls and Functions call-end-compiler
 }
 //> Garbage Collection mark-compiler-roots
 void markCompilerRoots() {

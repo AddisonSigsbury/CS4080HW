@@ -33,7 +33,7 @@ static Entry* findEntry(Entry* entries, int capacity,
   uint32_t index = key->hash % capacity;
 */
 //> Optimization initial-index
-  uint32_t index = key->hash & (capacity - 1);
+  uint32_t index = hashValue(key) % capacity;
 //< Optimization initial-index
 //> find-entry-tombstone
   Entry* tombstone = NULL;
@@ -55,7 +55,7 @@ static Entry* findEntry(Entry* entries, int capacity,
         // We found a tombstone.
         if (tombstone == NULL) tombstone = entry;
       }
-    } else if (entry->key == key) {
+    } else if (valuesEqual(entry->key, key)) {
       // We found the key.
       return entry;
     }
@@ -85,7 +85,7 @@ bool tableGet(Table* table, ObjString* key, Value* value) {
 static void adjustCapacity(Table* table, int capacity) {
   Entry* entries = ALLOCATE(Entry, capacity);
   for (int i = 0; i < capacity; i++) {
-    entries[i].key = NULL;
+    entries[i].key = NIL_VAL;
     entries[i].value = NIL_VAL;
   }
 //> re-hash
@@ -137,7 +137,7 @@ bool tableSet(Table* table, ObjString* key, Value value) {
 }
 //< table-set
 //> table-delete
-bool tableDelete(Table* table, ObjString* key) {
+bool tableDelete(Table* table, Value key) {
   if (table->count == 0) return false;
 
   // Find the entry.
@@ -145,7 +145,7 @@ bool tableDelete(Table* table, ObjString* key) {
   if (entry->key == NULL) return false;
 
   // Place a tombstone in the entry.
-  entry->key = NULL;
+  entry->key = NIL_VAL;
   entry->value = BOOL_VAL(true);
   return true;
 }
@@ -211,3 +211,21 @@ void markTable(Table* table) {
   }
 }
 //< Garbage Collection mark-table
+static uint32_t hashValue (Value value) {
+  switch (value.type) {
+    case VAL_BOOL:
+      return AS_BOOL (value) ? 1 : 0;
+    case VAL_NIL:
+      return 2;
+    case VAL_NUMBER: {
+      double num = AS_NUMBER(value);
+      uint64_t bits;
+      memcpy(&bits, &num, sizeof(bits));
+      return (uint32_t)(bits ^ (bits >> 32));
+    }
+    case VAL_OBJ:
+      if (IS_STRING(value)) return AS_STRING (value)->hash;
+      return 0;
+    }
+          return 0;
+}
