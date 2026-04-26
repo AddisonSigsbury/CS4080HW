@@ -71,7 +71,7 @@ typedef struct {
   Token name;
   int depth;
 //> Closures is-captured-field
-  bool isCaptured;
+  bool isConst;
 //< Closures is-captured-field
 } Local;
 //< Local Variables local-struct
@@ -643,16 +643,19 @@ static void dot(bool canAssign) {
   uint8_t name = identifierConstant(&parser.previous);
 
   if (canAssign && match(TOKEN_EQUAL)) {
-    expression();
-    emitBytes(OP_SET_PROPERTY, name);
-//> Methods and Initializers parse-call
-  } else if (match(TOKEN_LEFT_PAREN)) {
-    uint8_t argCount = argumentList();
-    emitBytes(OP_INVOKE, name);
-    emitByte(argCount);
-//< Methods and Initializers parse-call
-  } else {
-    emitBytes(OP_GET_PROPERTY, name);
+    if (arg != -1) {
+        if (current->locals[arg].isConst) {
+            error("Cant assign to const variable.");
+            expression();
+            return;
+        }
+    } else {
+        if (isConstGlobal(&name)) {
+            error("Cant assign to const variable.");
+            expression();
+            return;
+        }
+    }
   }
 }
 //< Classes and Instances compile-dot
@@ -1209,9 +1212,20 @@ static void funDeclaration() {
 static void varDeclaration() {
   uint8_t global = parseVariable("Expect variable name.");
 
+    if (match(TOKEN_VAR)) {
+        varDeclaration(false);
+    } else if (match(TOKEN_CONST)) {
+        varDeclaration(true);
+    } else {
+        statement();
+    }
+
   if (match(TOKEN_EQUAL)) {
     expression();
   } else {
+    if (isConst) {
+        error("Const variables must be initialized");
+    }
     emitByte(OP_NIL);
   }
   consume(TOKEN_SEMICOLON,
@@ -1229,69 +1243,58 @@ static void expressionStatement() {
 //< Global Variables expression-statement
 //> Jumping Back and Forth for-statement
 static void forStatement() {
-//> for-begin-scope
-  beginScope();
-//< for-begin-scope
-  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
-/* Jumping Back and Forth for-statement < Jumping Back and Forth for-initializer
-  consume(TOKEN_SEMICOLON, "Expect ';'.");
-*/
-//> for-initializer
-  if (match(TOKEN_SEMICOLON)) {
-    // No initializer.
-  } else if (match(TOKEN_VAR)) {
-    varDeclaration();
-  } else {
-    expressionStatement();
-  }
-//< for-initializer
+    beginScope();
 
-  int loopStart = currentChunk()->count;
-/* Jumping Back and Forth for-statement < Jumping Back and Forth for-exit
-  consume(TOKEN_SEMICOLON, "Expect ';'.");
-*/
-//> for-exit
-  int exitJump = -1;
-  if (!match(TOKEN_SEMICOLON)) {
-    expression();
-    consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+    if (match(TOKEN_VAR)) {
+        varDeclaration();
+    } else if (match(TOKEN_SEMICOLON)) {
+        // No initializer.
+    } else {
+        expressionStatement();
+    }
 
-    // Jump out of the loop if the condition is false.
-    exitJump = emitJump(OP_JUMP_IF_FALSE);
-    emitByte(OP_POP); // Condition.
-  }
+    int surroundingLoopStart = innermostLoopStart; // <--
+    int surroundingLoopScopeDepth = innermostLoopScopeDepth; // <--
+    innermostLoopStart = currentChunk()->count; // <--
+    innermostLoopScopeDepth = current->scopeDepth; // <--
 
-//< for-exit
-/* Jumping Back and Forth for-statement < Jumping Back and Forth for-increment
-  consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
-*/
-//> for-increment
-  if (!match(TOKEN_RIGHT_PAREN)) {
-    int bodyJump = emitJump(OP_JUMP);
-    int incrementStart = currentChunk()->count;
-    expression();
-    emitByte(OP_POP);
-    consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+    int exitJump = -1;
+    if (!match(TOKEN_SEMICOLON)) {
+        expression();
+        consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
 
-    emitLoop(loopStart);
-    loopStart = incrementStart;
-    patchJump(bodyJump);
-  }
-//< for-increment
+        // Jump out of the loop if the condition is false.
+        exitJump = emitJump(OP_JUMP_IF_FALSE);
+        emitByte(OP_POP); // Condition.
+    }
 
-  statement();
-  emitLoop(loopStart);
-//> exit-jump
+    if (!match(TOKEN_RIGHT_PAREN)) {
+        int bodyJump = emitJump(OP_JUMP);
 
-  if (exitJump != -1) {
-    patchJump(exitJump);
-    emitByte(OP_POP); // Condition.
-  }
+        int incrementStart = currentChunk()->count;
+        expression();
+        emitByte(OP_POP);
+        consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
 
-//< exit-jump
-//> for-end-scope
-  endScope();
-//< for-end-scope
+        emitLoop(innermostLoopStart); // <--
+        innermostLoopStart = incrementStart; // <--
+        patchJump(bodyJump);
+    }
+
+    statement();
+
+    emitLoop(innermostLoopStart); // <--
+
+    if (exitJump != -1) {
+        patchJump(exitJump);
+        emitByte(OP_POP); // Condition.
+    }
+
+    innermostLoopStart = surroundingLoopStart; // <--
+    innermostLoopScopeDepth = surroundingLoopScopeDepth; // <--
+
+    endScope();
 }
 //< Jumping Back and Forth for-statement
 //> Jumping Back and Forth if-statement
@@ -1321,6 +1324,95 @@ static void ifStatement() {
 //> patch-else
   patchJump(elseJump);
 //< patch-else
+}
+
+static void switchStatement() {
+    MAX_CASES = 256;
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+    expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after value.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before switch cases.");
+
+    int state = 0; // 0: before all cases, 1: before default, 2: after default.
+    int caseEnds[MAX_CASES];
+    int caseCount = 0;
+    int previousCaseSkip = -1;
+
+    while (!match(TOKEN_RIGHT_BRACE) && !check(TOKEN_EOF)) {
+        if (match(TOKEN_CASE) || match(TOKEN_DEFAULT)) {
+            TokenType caseType = parser.previous.type;
+
+            if (state == 2) {
+                error("Can't have another case or default after the default case.");
+            }
+
+            if (state == 1) {
+                // At the end of the previous case, jump over the others.
+                caseEnds[caseCount++] = emitJump(OP_JUMP);
+
+                // Patch its condition to jump to the next case (this one).
+                patchJump(previousCaseSkip);
+                emitByte(OP_POP);
+            }
+
+            if (caseType == TOKEN_CASE) {
+                state = 1;
+
+                // See if the case is equal to the value.
+                emitByte(OP_DUP);
+                expression();
+
+                consume(TOKEN_COLON, "Expect ':' after case value.");
+
+                emitByte(OP_EQUAL);
+                previousCaseSkip = emitJump(OP_JUMP_IF_FALSE);
+
+                // Pop the comparison result.
+                emitByte(OP_POP);
+            } else {
+                state = 2;
+                consume(TOKEN_COLON, "Expect ':' after default.");
+                previousCaseSkip = -1;
+            }
+        } else {
+            // Otherwise, it's a statement inside the current case.
+            if (state == 0) {
+                error("Can't have statements before any case.");
+            }
+            statement();
+        }
+    }
+
+    // If we ended without a default case, patch its condition jump.
+    if (state == 1) {
+        patchJump(previousCaseSkip);
+        emitByte(OP_POP);
+    }
+
+    // Patch all the case jumps to the end.
+    for (int i = 0; i < caseCount; i++) {
+        patchJump(caseEnds[i]);
+    }
+
+    emitByte(OP_POP); // The switch value.
+}
+
+static void continueStatement() {
+    if (innermostLoopStart == -1) {
+        error("Can't use 'continue' outside of a loop.");
+    }
+
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+
+    // Discard any locals created inside the loop.
+    for (int i = current->localCount - 1;
+         i >= 0 && current->locals[i].depth > innermostLoopScopeDepth;
+         i--) {
+        emitByte(OP_POP);
+    }
+
+    // Jump to top of current innermost loop.
+    emitLoop(innermostLoopStart);
 }
 //< Jumping Back and Forth if-statement
 //> Global Variables print-statement
@@ -1449,6 +1541,14 @@ static void statement() {
 //> Jumping Back and Forth parse-while
   } else if (match(TOKEN_WHILE)) {
     whileStatement();
+//< Jumping Back and Forth parse-while
+//> Local Variables parse-block
+  } else if (match(TOKEN_SWITCH)) {
+      switchStatement();
+//< Jumping Back and Forth parse-while
+//> Local Variables parse-block
+  } else if (match(TOKEN_CONTINUE)) {
+      continueStatement();
 //< Jumping Back and Forth parse-while
 //> Local Variables parse-block
   } else if (match(TOKEN_LEFT_BRACE)) {
