@@ -1243,58 +1243,90 @@ static void expressionStatement() {
 //< Global Variables expression-statement
 //> Jumping Back and Forth for-statement
 static void forStatement() {
+  beginScope();
+
+  // 1: Grab the name and slot of the loop variable so we can refer to it later.
+  int loopVariable = -1;
+  Token loopVariableName;
+  loopVariableName.start = NULL;
+  // end.
+
+  consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
+  if (match(TOKEN_VAR)) {
+    // 1: Grab the name of the loop variable.
+    loopVariableName = parser.current;
+    // end.
+    varDeclaration();
+    // 1: And get its slot.
+    loopVariable = current->localCount - 1;
+    // end.
+  } else if (match(TOKEN_SEMICOLON)) {
+    // No initializer.
+  } else {
+    expressionStatement();
+  }
+
+  int loopStart = currentChunk()->count;
+
+  int exitJump = -1;
+  if (!match(TOKEN_SEMICOLON)) {
+    expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+
+    // Jump out of the loop if the condition is false.
+    exitJump = emitJump(OP_JUMP_IF_FALSE);
+    emitByte(OP_POP); // Condition.
+  }
+
+  if (!match(TOKEN_RIGHT_PAREN)) {
+    int bodyJump = emitJump(OP_JUMP);
+
+    int incrementStart = currentChunk()->count;
+    expression();
+    emitByte(OP_POP);
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
+
+    emitLoop(loopStart);
+    loopStart = incrementStart;
+    patchJump(bodyJump);
+  }
+
+  // 1: If the loop declares a variable...
+  int innerVariable = -1;
+  if (loopVariable != -1) {
+    // 1: Create a scope for the copy...
     beginScope();
+    // 1: Define a new variable initialized with the current value of the loop
+    //    variable.
+    emitBytes(OP_GET_LOCAL, (uint8_t)loopVariable);
+    addLocal(loopVariableName);
+    markInitialized();
+    // 1: Keep track of its slot.
+    innerVariable = current->localCount - 1;
+  }
+  // end.
 
-    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'for'.");
-    if (match(TOKEN_VAR)) {
-        varDeclaration();
-    } else if (match(TOKEN_SEMICOLON)) {
-        // No initializer.
-    } else {
-        expressionStatement();
-    }
+  statement();
 
-    int surroundingLoopStart = innermostLoopStart; // <--
-    int surroundingLoopScopeDepth = innermostLoopScopeDepth; // <--
-    innermostLoopStart = currentChunk()->count; // <--
-    innermostLoopScopeDepth = current->scopeDepth; // <--
+  // 3: If the loop declares a variable...
+  if (loopVariable != -1) {
+    // 3: Store the inner variable back in the loop variable.
+    emitBytes(OP_GET_LOCAL, (uint8_t)innerVariable);
+    emitBytes(OP_SET_LOCAL, (uint8_t)loopVariable);
+    emitByte(OP_POP);
 
-    int exitJump = -1;
-    if (!match(TOKEN_SEMICOLON)) {
-        expression();
-        consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
-
-        // Jump out of the loop if the condition is false.
-        exitJump = emitJump(OP_JUMP_IF_FALSE);
-        emitByte(OP_POP); // Condition.
-    }
-
-    if (!match(TOKEN_RIGHT_PAREN)) {
-        int bodyJump = emitJump(OP_JUMP);
-
-        int incrementStart = currentChunk()->count;
-        expression();
-        emitByte(OP_POP);
-        consume(TOKEN_RIGHT_PAREN, "Expect ')' after for clauses.");
-
-        emitLoop(innermostLoopStart); // <--
-        innermostLoopStart = incrementStart; // <--
-        patchJump(bodyJump);
-    }
-
-    statement();
-
-    emitLoop(innermostLoopStart); // <--
-
-    if (exitJump != -1) {
-        patchJump(exitJump);
-        emitByte(OP_POP); // Condition.
-    }
-
-    innermostLoopStart = surroundingLoopStart; // <--
-    innermostLoopScopeDepth = surroundingLoopScopeDepth; // <--
-
+    // 4: Close the temporary scope for the copy of the loop variable.
     endScope();
+  }
+
+  emitLoop(loopStart);
+
+  if (exitJump != -1) {
+    patchJump(exitJump);
+    emitByte(OP_POP); // Condition.
+  }
+
+  endScope();
 }
 //< Jumping Back and Forth for-statement
 //> Jumping Back and Forth if-statement

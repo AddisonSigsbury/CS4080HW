@@ -29,8 +29,51 @@ VM vm; // [one]
 Table globalNames;
 ValueArray globalValues;
 //> Calls and Functions clock-native
-static Value clockNative(int argCount, Value* args) {
-  return NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+static bool clockNative(int argCount, Value* args) {
+  args[-1] = NUMBER_VAL((double)clock() / CLOCKS_PER_SEC);
+  return true;
+}
+static bool errNative(int argCount, Value* args) {
+  args[-1] = OBJ_VAL(copyString("Error!", 6));
+  return false;
+}
+static bool sqrtNative(int argCount, Value* args, Value* result) {
+  if (argCount != 1) {
+    runtimeError("sqrt) expects 1 argument.");
+    return false;
+  }
+  if (!IS_NUMBER(args[0])) {
+    runtimeError("sqrt () argument must be a number. ");
+    return false;
+  }
+  double x = AS_NUMBER(args [0]);
+  if (x < 0) {
+    runtimeError("sqrt() argument must be non-negative.");
+    return false;
+  }
+  *result = NUMBER_VAL(sqrt(x));
+  return true;
+}
+static bool typeNative(int argCount, Value* args, Value* result) {
+  if (argCount != 1) {
+    runtimeError("type() expects 1 argument.");
+    return false;
+  }
+  Value value = args[0];
+  if (IS NUMBER(value)) {
+    *result = OBJ_VAL(copystring("number", 6));
+  } else if (IS_BOOL (value)) {
+    *result = OBJ_VAL(copystring("bool", 4));
+  } else if (IS_NIL(value)) {
+    *result = OBJ_VAL(copystring("nil,", 3)) ;
+  } else if (IS_STRING (value)) {
+    *result = OBJ_VAL(copystring("string", 6));
+  } else if (IS_FUNCTION(value)) {
+    *result = OBJ_VAL(copystring("function", 8)) ;
+  } else if (IS_NATIVE (value)) {
+    *result = OBJ_VAL(copystring("native", 6));
+  } else {
+    *result = OBJ_VAL(copystring(" unknown", 7));
 }
 //< Calls and Functions clock-native
 //> reset-stack
@@ -65,7 +108,7 @@ static void runtimeError(const char* format, ...) {
     ObjFunction* function = frame->function;
 */
 //> Closures runtime-error-function
-    ObjFunction* function = frame->closure->function;
+    ObjFunction* function = getFrameFunction(frame);
 //< Closures runtime-error-function
     size_t instruction = frame->ip - function->chunk.code - 1;
     fprintf(stderr, "[line %d] in ", // [minus]
@@ -79,6 +122,13 @@ static void runtimeError(const char* format, ...) {
 
 //< Calls and Functions runtime-error-stack
   resetStack();
+}
+static inline ObjFunction* getFrameFunction(CallFrame* frame) {
+  if (frame->function->type == OBJ_FUNCTION) {
+    return (ObjFunction*)frame->function;
+  } else {
+    return ((ObjClosure*)frame->function)->function;
+  }
 }
 //< Types of Values runtime-error
 //> Calls and Functions define-native
@@ -125,42 +175,33 @@ static bool call(ObjFunction* function, int argCount) {
 */
 //> Calls and Functions call
 //> Closures call-signature
-static bool call(ObjClosure* closure, int argCount) {
-//< Closures call-signature
-/* Calls and Functions check-arity < Closures check-arity
-  if (argCount != function->arity) {
-    runtimeError("Expected %d arguments but got %d.",
-        function->arity, argCount);
-*/
-//> Closures check-arity
-  if (argCount != closure->function->arity) {
-    runtimeError("Expected %d arguments but got %d.",
-        closure->function->arity, argCount);
-//< Closures check-arity
-//> check-arity
-    return false;
+  static bool call(Obj* callee, ObjFunction* function, int argCount) {
+    if (argCount != function->arity) {
+      runtimeError("Expected %d arguments but got %d.",
+              function->arity, argCount);
+      return false;
+    }
+
+    if (vm.frameCount == FRAMES_MAX) {
+      runtimeError("Stack overflow.");
+      return false;
+    }
+
+    CallFrame* frame = &vm.frames[vm.frameCount++];
+    frame->function = (Obj*)callee;
+    frame->ip = function->chunk.code;
+
+    frame->slots = vm.stackTop - argCount - 1;
+    return true;
   }
 
-//< check-arity
-//> check-overflow
-  if (vm.frameCount == FRAMES_MAX) {
-    runtimeError("Stack overflow.");
-    return false;
+  static bool callClosure(ObjClosure* closure, int argCount) {
+    return call((Obj*)closure, closure->function, argCount);
   }
 
-//< check-overflow
-  CallFrame* frame = &vm.frames[vm.frameCount++];
-/* Calls and Functions call < Closures call-init-closure
-  frame->function = function;
-  frame->ip = function->chunk.code;
-*/
-//> Closures call-init-closure
-  frame->closure = closure;
-  frame->ip = closure->function->chunk.code;
-//< Closures call-init-closure
-  frame->slots = vm.stackTop - argCount - 1;
-  return true;
-}
+  static bool callFunction(ObjFunction* function, int argCount) {
+    return call((Obj*)function, function, argCount);
+  }
 //< Calls and Functions call
 //> Calls and Functions call-value
 static bool callValue(Value callee, int argCount) {
@@ -197,7 +238,9 @@ static bool callValue(Value callee, int argCount) {
 //< Classes and Instances call-class
 //> Closures call-value-closure
       case OBJ_CLOSURE:
-        return call(AS_CLOSURE(callee), argCount);
+        return callClosure(AS_CLOSURE(callee), argCount);
+      case OBJ_FUNCTION:
+        return callFunction(AS_FUNCTION(callee), argCount);
 //< Closures call-value-closure
 /* Calls and Functions call-value < Closures call-value-closure
       case OBJ_FUNCTION: // [switch]
@@ -206,10 +249,13 @@ static bool callValue(Value callee, int argCount) {
 //> call-native
       case OBJ_NATIVE: {
         NativeFn native = AS_NATIVE(callee);
-        Value result = native(argCount, vm.stackTop - argCount);
-        vm.stackTop -= argCount + 1;
-        push(result);
-        return true;
+        if (native(argCount, vm.stackTop - argCount)) {
+          vm.stackTop -= argCount;
+          return true;
+        } else {
+          runtimeError(AS_STRING(vm.stackTop[-argCount - 1])->chars);
+          return false;
+        }
       }
 //< call-native
       default:
@@ -352,11 +398,12 @@ static void concatenate() {
 static InterpretResult run() {
 //> Calls and Functions run
   CallFrame* frame = &vm.frames[vm.frameCount - 1];
+  register uint8_t* ip = frame->ip;
 
 /* A Virtual Machine run < Calls and Functions run
 #define READ_BYTE() (*vm.ip++)
 */
-#define READ_BYTE() (*frame->ip++)
+#define READ_BYTE() (*ip++)
 /* A Virtual Machine read-constant < Calls and Functions run
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 */
@@ -366,8 +413,7 @@ static InterpretResult run() {
     (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 */
 #define READ_SHORT() \
-    (frame->ip += 2, \
-    (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+    (ip += 2, (uint16_t)((ip[-2] << 8) | ip[-1]))
 
 /* Calls and Functions run < Closures read-constant
 #define READ_CONSTANT() \
@@ -394,6 +440,7 @@ static InterpretResult run() {
 #define BINARY_OP(valueType, op) \
     do { \
       if (!IS_NUMBER(peek(0)) || !IS_NUMBER(peek(1))) { \
+        frame->ip = ip; \
         runtimeError("Operands must be numbers."); \
         return INTERPRET_RUNTIME_ERROR; \
       } \
@@ -481,6 +528,7 @@ static InterpretResult run() {
       case OP_GET_GLOBAL: {
         Value value = vm.globalValues.values[READ_BYTE()];
         if (IS_UNDEFINED(value)) {
+          frame->ip = ip;
           runtimeError("Undefined variable.");
           return INTERPRET_RUNTIME_ERROR;
         }
@@ -498,6 +546,7 @@ static InterpretResult run() {
       case OP_SET_GLOBAL: {
         uint8_t index = READ_BYTE();
         if (IS_UNDEFINED(vm.globalValues.values[index])) {
+          frame->ip = ip;
           runtimeError("Undefined variable.");
           return INTERPRET_RUNTIME_ERROR;
         }
@@ -615,7 +664,9 @@ static InterpretResult run() {
           double a = AS_NUMBER(pop());
           push(NUMBER_VAL(a + b));
         } else {
+          frame->ip = ip;
           runtimeError(
+
               "Operands must be two numbers or two strings.");
           return INTERPRET_RUNTIME_ERROR;
         }
@@ -635,6 +686,7 @@ static InterpretResult run() {
 //> Types of Values op-negate
       case OP_NEGATE:
         if (!IS_NUMBER(peek(0))) {
+          frame->ip = ip;
           runtimeError("Operand must be a number.");
           return INTERPRET_RUNTIME_ERROR;
         }
@@ -651,48 +703,33 @@ static InterpretResult run() {
 //> Jumping Back and Forth op-jump
       case OP_JUMP: {
         uint16_t offset = READ_SHORT();
-/* Jumping Back and Forth op-jump < Calls and Functions jump
-        vm.ip += offset;
-*/
-//> Calls and Functions jump
-        frame->ip += offset;
-//< Calls and Functions jump
+        ip += offset;
         break;
       }
 //< Jumping Back and Forth op-jump
 //> Jumping Back and Forth op-jump-if-false
       case OP_JUMP_IF_FALSE: {
         uint16_t offset = READ_SHORT();
-/* Jumping Back and Forth op-jump-if-false < Calls and Functions jump-if-false
-        if (isFalsey(peek(0))) vm.ip += offset;
-*/
-//> Calls and Functions jump-if-false
-        if (isFalsey(peek(0))) frame->ip += offset;
-//< Calls and Functions jump-if-false
+        if (isFalsey(peek(0))) ip += offset;
         break;
       }
 //< Jumping Back and Forth op-jump-if-false
 //> Jumping Back and Forth op-loop
       case OP_LOOP: {
         uint16_t offset = READ_SHORT();
-/* Jumping Back and Forth op-loop < Calls and Functions loop
-        vm.ip -= offset;
-*/
-//> Calls and Functions loop
-        frame->ip -= offset;
-//< Calls and Functions loop
+        ip -= offset;
         break;
       }
 //< Jumping Back and Forth op-loop
 //> Calls and Functions interpret-call
       case OP_CALL: {
         int argCount = READ_BYTE();
+        frame->ip = ip; // <-- Add.
         if (!callValue(peek(argCount), argCount)) {
           return INTERPRET_RUNTIME_ERROR;
         }
-//> update-frame-after-call
         frame = &vm.frames[vm.frameCount - 1];
-//< update-frame-after-call
+        ip = frame->ip; // <-- Add.
         break;
       }
 //< Calls and Functions interpret-call
@@ -704,6 +741,7 @@ static InterpretResult run() {
           return INTERPRET_RUNTIME_ERROR;
         }
         frame = &vm.frames[vm.frameCount - 1];
+        ip = frame->ip;
         break;
       }
 //< Methods and Initializers interpret-invoke
@@ -716,27 +754,28 @@ static InterpretResult run() {
           return INTERPRET_RUNTIME_ERROR;
         }
         frame = &vm.frames[vm.frameCount - 1];
+        ip = frame->ip;
         break;
       }
 //< Superclasses interpret-super-invoke
 //> Closures interpret-closure
       case OP_CLOSURE: {
-        ObjFunction* function = AS_FUNCTION(READ_CONSTANT());
-        ObjClosure* closure = newClosure(function);
-        push(OBJ_VAL(closure));
-//> interpret-capture-upvalues
-        for (int i = 0; i < closure->upvalueCount; i++) {
-          uint8_t isLocal = READ_BYTE();
-          uint8_t index = READ_BYTE();
-          if (isLocal) {
-            closure->upvalues[i] =
-                captureUpvalue(frame->slots + index);
-          } else {
-            closure->upvalues[i] = frame->closure->upvalues[index];
+        ObjFunction* function = endCompiler();
+        // Remove 7 lines and add:
+        uint8_t functionConstant = makeConstant(OBJ_VAL(function));
+        if (function->upvalueCount > 0) {
+          emitBytes(OP_CLOSURE, functionConstant);
+
+          // Emit arguments for each upvalue to know whether to capture a local
+          // or an upvalue.
+          for (int i = 0; i < function->upvalueCount; i++) {
+            emitByte(compiler.upvalues[i].isLocal ? 1 : 0);
+            emitByte(compiler.upvalues[i].index);
           }
+        } else {
+          // No need to create a closure.
+          emitBytes(OP_CONSTANT, functionConstant);
         }
-//< interpret-capture-upvalues
-        break;
       }
 //< Closures interpret-closure
 //> Closures interpret-close-upvalue
@@ -770,6 +809,7 @@ static InterpretResult run() {
         vm.stackTop = frame->slots;
         push(result);
         frame = &vm.frames[vm.frameCount - 1];
+        ip = frame->ip;
         break;
 //< Calls and Functions interpret-return
       }
