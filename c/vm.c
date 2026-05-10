@@ -145,6 +145,10 @@ void initVM() {
   vm.stack = NULL;
   vm.stackCapacity = 0;
   resetStack();
+  defineNative("hasField", hasFieldNative);
+  defineNative("getField", getFieldNative);
+  defineNative("setField", setFieldNative);
+  defineNative("deleteField", deleteFieldNative);
 }
 //> push
 void push(Value value) {
@@ -315,6 +319,26 @@ static bool bindMethod(ObjClass* klass, ObjString* name) {
   push(OBJ_VAL(bound));
   return true;
 }
+static Value getFieldNative(int argCount, Value* args) {
+  if (argCount != 2) return FALSE_VAL;
+  if (!IS_INSTANCE(args[0])) return FALSE_VAL;
+  if (!IS_STRING(args[1])) return FALSE_VAL;
+
+  ObjInstance* instance = AS_INSTANCE(args[0]);
+  Value value;
+  tableGet(&instance->fields, AS_STRING(args[1]), &value);
+  return value;
+}
+
+static Value setFieldNative(int argCount, Value* args) {
+  if (argCount != 3) return FALSE_VAL;
+  if (!IS_INSTANCE(args[0])) return FALSE_VAL;
+  if (!IS_STRING(args[1])) return FALSE_VAL;
+
+  ObjInstance* instance = AS_INSTANCE(args[0]);
+  tableSet(&instance->fields, AS_STRING(args[1]), args[2]);
+  return args[2];
+}
 //< Methods and Initializers bind-method
 //> Closures capture-upvalue
 static ObjUpvalue* captureUpvalue(Value* local) {
@@ -344,6 +368,15 @@ static ObjUpvalue* captureUpvalue(Value* local) {
 //< insert-upvalue-in-list
   return createdUpvalue;
 }
+static Value deleteFieldNative(int argCount, Value* args) {
+  if (argCount != 2) return NIL_VAL;
+  if (!IS_INSTANCE(args[0])) return NIL_VAL;
+  if (!IS_STRING(args[1])) return NIL_VAL;
+
+  ObjInstance* instance = AS_INSTANCE(args[0]);
+  tableDelete(&instance->fields, AS_STRING(args[1]));
+  return NIL_VAL;
+}
 //< Closures capture-upvalue
 //> Closures close-upvalues
 static void closeUpvalues(Value* last) {
@@ -367,6 +400,16 @@ static void defineMethod(ObjString* name) {
 //> Types of Values is-falsey
 static bool isFalsey(Value value) {
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
+}
+
+static Value hasFieldNative(int argCount, Value* args) {
+  if (argCount != 2) return FALSE_VAL;
+  if (!IS_INSTANCE(args[0])) return FALSE_VAL;
+  if (!IS_STRING(args[1])) return FALSE_VAL;
+
+  ObjInstance* instance = AS_INSTANCE(args[0]);
+  Value dummy;
+  return BOOL_VAL(tableGet(&instance->fields, AS_STRING(args[1]), &dummy));
 }
 //< Types of Values is-falsey
 //> Strings concatenate
