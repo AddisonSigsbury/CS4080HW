@@ -149,6 +149,7 @@ typedef struct {
 //> upvalue-fields
   ObjUpvalue** upvalues;
   int upvalueCount;
+  uint16_t classID;
 //< upvalue-fields
 } ObjClosure;
 //< Closures obj-closure
@@ -157,8 +158,10 @@ typedef struct {
 typedef struct {
   Obj obj;
   ObjString* name;
+  Value initializer;
 //> Methods and Initializers class-methods
   Table methods;
+  uint16_t id;
 //< Methods and Initializers class-methods
 } ObjClass;
 //< Classes and Instances obj-class
@@ -184,7 +187,7 @@ ObjBoundMethod* newBoundMethod(Value receiver,
                                ObjClosure* method);
 //< Methods and Initializers new-bound-method-h
 //> Classes and Instances new-class-h
-ObjClass* newClass(ObjString* name);
+ObjClass* newClass(ObjString* name, uint16_t id);
 //< Classes and Instances new-class-h
 //> Closures new-closure-h
 ObjClosure* newClosure(ObjFunction* function);

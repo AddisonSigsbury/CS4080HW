@@ -149,6 +149,7 @@ void initVM() {
   defineNative("getField", getFieldNative);
   defineNative("setField", setFieldNative);
   defineNative("deleteField", deleteFieldNative);
+  vm.nextClassID = 0;
 }
 //> push
 void push(Value value) {
@@ -226,15 +227,11 @@ static bool callValue(Value callee, int argCount) {
         vm.stackTop[-argCount - 1] = OBJ_VAL(newInstance(klass));
 //> Methods and Initializers call-init
         Value initializer;
-        if (tableGet(&klass->methods, vm.initString,
-                     &initializer)) {
-          return call(AS_CLOSURE(initializer), argCount);
-//> no-init-arity-error
+        if (!IS_NIL(klass->initializer)) {
+          return call(AS_CLOSURE(klass->initializer), argCount);
         } else if (argCount != 0) {
-          runtimeError("Expected 0 arguments but got %d.",
-                       argCount);
+          runtimeError("Expected 0 arguments but got %d.", argCount);
           return false;
-//< no-init-arity-error
         }
 //< Methods and Initializers call-init
         return true;
@@ -303,6 +300,20 @@ static bool invoke(ObjString* name, int argCount) {
 
 //< invoke-field
   return invokeFromClass(instance->klass, name, argCount);
+}
+static bool invokeInner(ObjString* name, int argCount) {
+  Value receiver = peek(argCount);
+  ObjInstance* instance = AS_INSTANCE(receiver);
+
+  Value method;
+  if (!tableGet(&instance->klass->methods, name, &method)) {
+    // No inner method, so discard args and return nil.
+    vm.stackTop -= argCount + 1;
+    push(NIL_VAL);
+    return true;
+  }
+
+  return call(AS_CLOSURE(method), argCount);
 }
 //< Methods and Initializers invoke
 //> Methods and Initializers bind-method
@@ -394,6 +405,7 @@ static void defineMethod(ObjString* name) {
   Value method = peek(0);
   ObjClass* klass = AS_CLASS(peek(1));
   tableSet(&klass->methods, name, method);
+  if (name == vm.initString) klass->initializer = method;
   pop();
 }
 //< Methods and Initializers define-method
