@@ -154,6 +154,16 @@ ObjString* makeString(bool ownsChars, char* chars, int length) {
   return string;
 }
 
+Value takeStringValue(char* chars, int length) {
+  if (length <= SHORT_STRING_MAX) {
+    Value value = SHORT_STRING_VAL(chars, length);
+    FREE_ARRAY(char, chars, length + 1);
+    return value;
+  }
+
+  return OBJ_VAL(takeString(chars,length));
+}
+
 static void string() {
   emitConstant(OBJ_VAL(makeString(false,
           (char*)parser.previous.start + 1, parser.previous.length - 2)));
